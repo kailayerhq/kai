@@ -250,9 +250,8 @@ const installScript = `#!/bin/sh
 
 set -e
 
+GITHUB_REPO="kailayerhq/kai"
 INSTALL_DIR="${KAI_INSTALL_DIR:-/usr/local/bin}"
-VERSION="${KAI_VERSION:-latest}"
-BASE_URL="https://gitlab.com/api/v4/projects/rite-day%2Fivcs/packages/generic/kai-cli/${VERSION}"
 
 # Detect OS and architecture
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
@@ -272,19 +271,37 @@ case "$OS" in
 esac
 
 BINARY="kai-${OS}-${ARCH}"
-URL="${BASE_URL}/${BINARY}.gz"
 
 echo "Installing Kai CLI..."
-echo "  Version: $VERSION"
 echo "  OS: $OS"
 echo "  Arch: $ARCH"
 echo ""
+
+# Get latest release tag
+echo "Fetching latest release..."
+if command -v curl > /dev/null; then
+    VERSION=$(curl -fsSL "https://api.github.com/repos/${GITHUB_REPO}/releases/latest" | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/')
+elif command -v wget > /dev/null; then
+    VERSION=$(wget -qO- "https://api.github.com/repos/${GITHUB_REPO}/releases/latest" | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/')
+else
+    echo "Error: curl or wget required"
+    exit 1
+fi
+
+if [ -z "$VERSION" ]; then
+    echo "Error: Could not determine latest release"
+    exit 1
+fi
+
+echo "  Version: $VERSION"
+URL="https://github.com/${GITHUB_REPO}/releases/download/${VERSION}/${BINARY}.gz"
 
 # Create temp directory
 TMP_DIR=$(mktemp -d)
 trap "rm -rf $TMP_DIR" EXIT
 
-# Try to download binary
+# Download binary
+echo "Downloading ${BINARY}..."
 DOWNLOAD_OK=0
 if command -v curl > /dev/null; then
     if curl -fsSL "$URL" -o "$TMP_DIR/kai.gz" 2>/dev/null; then
@@ -311,19 +328,12 @@ if [ "$DOWNLOAD_OK" = "1" ]; then
     echo ""
     echo "Kai CLI installed successfully!"
 else
-    # Fallback to go install
     echo "Pre-built binary not available for ${OS}/${ARCH}."
     echo ""
-    if command -v go > /dev/null; then
-        echo "Installing via 'go install'..."
-        CGO_ENABLED=1 go install gitlab.com/rite-day/ivcs/kai-cli/cmd/kai@latest
-        echo ""
-        echo "Kai CLI installed successfully!"
-    else
-        echo "Please install using Go:"
-        echo "  go install gitlab.com/rite-day/ivcs/kai-cli/cmd/kai@latest"
-        exit 1
-    fi
+    echo "Please build from source:"
+    echo "  git clone https://github.com/${GITHUB_REPO}.git"
+    echo "  cd kai/kai-cli && ./build.sh"
+    exit 1
 fi
 
 echo ""
